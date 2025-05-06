@@ -1,3 +1,7 @@
+import utils.clients
+import utils.http_session
+import utils.transport
+import utils.session
 import whisper
 from moviepy.video.io.VideoFileClip import VideoFileClip
 from moviepy.audio.io.AudioFileClip import AudioFileClip
@@ -81,16 +85,16 @@ LANGUAGE_CODES = {
         'zh': 'zh'
     },
     'm2m100': {
-        'en': 'en_XX',
-        'ru': 'ru_RU',
-        'es': 'es_XX',
-        'fr': 'fr_XX',
-        'de': 'de_DE',
-        'it': 'it_IT',
-        'pt': 'pt_XX',
-        'ja': 'ja_XX',
-        'ko': 'ko_KR',
-        'zh': 'zh_CN'
+        'en': 'en',
+        'ru': 'ru',
+        'es': 'es',
+        'fr': 'fr',
+        'de': 'de',
+        'it': 'it',
+        'pt': 'pt',
+        'ja': 'ja',
+        'ko': 'ko',
+        'zh': 'zh'
     },
     'gtts': {
         'en': 'en',
@@ -159,7 +163,9 @@ def translate_text(texts, output_path, source_lang='en', target_lang='ru'):
             generated_tokens = model.generate(
                 **encoded,
                 forced_bos_token_id=tokenizer.get_lang_id(LANGUAGE_CODES['m2m100'][target_lang]),
-                max_length=512
+                max_length=512,
+                num_beams=5,
+                length_penalty=0.6
             )
             
             # Decode the translation
@@ -169,7 +175,8 @@ def translate_text(texts, output_path, source_lang='en', target_lang='ru'):
             print(f"Translated ({SUPPORTED_LANGUAGES[target_lang]}): {translated[:50]}...")
             
         except Exception as e:
-            print(f"⚠️ Translation error for segment {i}: {e}")
+            print(f"⚠️ Translation error for segment {i}: {str(e)}")
+            print(f"Text: {text[:100]}...")
             translated = text
         translations.append(translated)
 
