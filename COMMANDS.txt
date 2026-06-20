@@ -1,4 +1,11 @@
 ====================================================
+  *** LAUNCH THE UI APP ***
+
+  cd "C:\Users\ARTHTHIGAN\OneDrive\Documents\GitHub\videoTranslator"
+  python ui.py
+
+  Then open browser: http://localhost:7860
+====================================================
   VIDEO TRANSLATOR - READY TO USE COMMANDS
 ====================================================
   Run all commands from the videoTranslator folder:

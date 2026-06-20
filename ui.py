@@ -60,6 +60,7 @@ def translate_video(
     whisper_model,
     translator_model,
     use_gpu,
+    output_folder,
     progress=gr.Progress(track_tqdm=True),
 ):
     if video_file is None:
@@ -68,6 +69,9 @@ def translate_video(
 
     source_lang = code_from_choice(source_lang_str)
     target_lang = code_from_choice(target_lang_str)
+
+    # Resolve output folder — default to ./output if blank
+    custom_out = output_folder.strip() if output_folder and output_folder.strip() else ""
 
     # collect logs
     logs = []
@@ -87,9 +91,20 @@ def translate_video(
                 translator_model = translator_model,
                 use_gpu          = use_gpu,
             )
-            base      = sanitize_filename(Path(video_file).stem)
-            out_file  = Path("output") / base / f"{base}_dubbed.mp4"
-            result_path[0] = str(out_file) if out_file.exists() else None
+            base     = sanitize_filename(Path(video_file).stem)
+            out_file = Path("output") / base / f"{base}_dubbed.mp4"
+
+            if out_file.exists():
+                if custom_out:
+                    # Copy to the user-chosen folder
+                    dest_dir = Path(custom_out)
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest_file = dest_dir / out_file.name
+                    shutil.copy2(str(out_file), str(dest_file))
+                    print(f"📂 Copied to: {dest_file}")
+                    result_path[0] = str(dest_file)
+                else:
+                    result_path[0] = str(out_file)
         except Exception as e:
             error_box[0] = str(e)
 
@@ -125,7 +140,7 @@ def translate_video(
         return
 
     if result_path[0]:
-        logs.append("\n🎉 Done! Your dubbed video is ready to download.")
+        logs.append(f"\n🎉 Done! Saved to: {result_path[0]}")
         yield (
             result_path[0],
             "\n".join(logs),
@@ -138,6 +153,89 @@ def translate_video(
     else:
         logs.append("\n❌ Output file not found. Check the log above for errors.")
         yield None, "\n".join(logs), gr.DownloadButton(visible=False)
+
+
+# ── History helpers ───────────────────────────────────────────────────────────
+OUTPUT_DIR = Path("output")
+
+def get_dubbed_videos():
+    """Scan output/ folder and return list of all dubbed mp4 files, newest first."""
+    if not OUTPUT_DIR.exists():
+        return []
+    files = sorted(
+        OUTPUT_DIR.rglob("*_dubbed.mp4"),
+        key=lambda f: f.stat().st_mtime,
+        reverse=True,
+    )
+    return files
+
+def build_history_html():
+    """Build a Chrome download history style list — no video embeds, instant load."""
+    files = get_dubbed_videos()
+    if not files:
+        return "<div style='padding:30px;text-align:center;color:#888;font-size:16px;'>No dubbed videos yet. Translate a video to see it here.</div>"
+
+    rows = []
+    for f in files:
+        size_mb = f.stat().st_size / (1024 * 1024)
+        mtime   = __import__("datetime").datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d  %H:%M")
+        name    = f.name
+        folder  = str(f.parent)
+        dl_url  = f"/gradio_api/file={f.resolve()}"
+
+        rows.append(f"""
+        <div style="
+            display:flex; align-items:center; justify-content:space-between;
+            padding:12px 16px; border-bottom:1px solid #e5e7eb;
+            background:#fff; gap:12px;
+        " onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='#fff'">
+
+            <!-- Icon + file info -->
+            <div style="display:flex;align-items:center;gap:12px;min-width:0;flex:1;">
+                <div style="font-size:28px;flex-shrink:0;">🎬</div>
+                <div style="min-width:0;">
+                    <div style="font-weight:600;font-size:14px;color:#111;
+                                overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
+                         title="{name}">
+                        {name}
+                    </div>
+                    <div style="font-size:12px;color:#6b7280;margin-top:2px;">
+                        {mtime} &nbsp;·&nbsp; {size_mb:.1f} MB &nbsp;·&nbsp;
+                        <span title="{folder}" style="cursor:default;">{folder[:60]}{'...' if len(folder)>60 else ''}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div style="display:flex;gap:8px;flex-shrink:0;">
+                <a href="{dl_url}" download="{name}"
+                   style="padding:6px 14px;background:#16a34a;color:#fff;border-radius:6px;
+                          text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap;">
+                    ⬇️ Download
+                </a>
+                <a href="{dl_url}" target="_blank"
+                   style="padding:6px 14px;background:#2563eb;color:#fff;border-radius:6px;
+                          text-decoration:none;font-size:13px;font-weight:600;white-space:nowrap;">
+                    ▶ Play
+                </a>
+            </div>
+        </div>
+        """)
+
+    rows_html = "\n".join(rows)
+    count = len(files)
+    return f"""
+    <div style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;background:#fff;">
+        <div style="padding:12px 16px;background:#f3f4f6;border-bottom:1px solid #e5e7eb;
+                    font-size:13px;color:#6b7280;font-weight:600;">
+            {count} dubbed video{"s" if count != 1 else ""}
+        </div>
+        {rows_html}
+    </div>
+    """
+
+def refresh_history():
+    return build_history_html()
 
 
 # ── Gradio UI ─────────────────────────────────────────────────────────────────
@@ -181,80 +279,92 @@ with gr.Blocks(title="🎬 Video Translator") as demo:
     gr.Markdown("# 🎬 Video Translator", elem_id="title")
     gr.Markdown("Dub any video into another language using AI — powered by Whisper + M2M100 + Edge TTS.")
 
-    with gr.Row():
-        # ── LEFT COLUMN ──────────────────────────────────────────────────────
-        with gr.Column(scale=1):
-            video_input = gr.Video(
-                label="📁 Upload Video",
-                sources=["upload"],
-                elem_id="video_input",
-            )
+    with gr.Tabs():
 
+        # ════════════════════════════════════════════
+        # TAB 1 — Translate
+        # ════════════════════════════════════════════
+        with gr.TabItem("🚀 Translate"):
             with gr.Row():
-                source_lang = gr.Dropdown(
-                    choices=LANG_CHOICES,
-                    value="English (en)",
-                    label="🗣️ Source Language",
-                )
-                target_lang = gr.Dropdown(
-                    choices=LANG_CHOICES,
-                    value="Spanish (es)",
-                    label="🌍 Target Language",
-                )
+                # ── LEFT COLUMN ──────────────────────────────────────────────
+                with gr.Column(scale=1):
+                    video_input = gr.Video(
+                        label="📁 Upload Video",
+                        sources=["upload"],
+                        elem_id="video_input",
+                    )
 
-            with gr.Row():
-                voice_gender = gr.Radio(
-                    choices=["female", "male"],
-                    value="female",
-                    label="🎤 Voice Gender",
-                )
-                use_gpu = gr.Checkbox(
-                    label="⚡ Use GPU (if available)",
-                    value=False,
-                )
+                    with gr.Row():
+                        source_lang = gr.Dropdown(
+                            choices=LANG_CHOICES,
+                            value="English (en)",
+                            label="🗣️ Source Language",
+                        )
+                        target_lang = gr.Dropdown(
+                            choices=LANG_CHOICES,
+                            value="Spanish (es)",
+                            label="🌍 Target Language",
+                        )
 
-            with gr.Accordion("⚙️ Advanced Options", open=False):
-                whisper_model = gr.Dropdown(
-                    choices=WHISPER_MODELS,
-                    value="base",
-                    label="🔍 Whisper Model (transcription quality)",
-                    info="tiny=fastest  base=default  small=better  medium=high  large=best",
-                )
-                translator_model = gr.Dropdown(
-                    choices=TRANS_MODELS,
-                    value="m2m100_418M",
-                    label="🌐 Translation Model",
-                    info="418M=fast  1.2B=better quality  nllb=alternative",
-                )
+                    with gr.Row():
+                        voice_gender = gr.Radio(
+                            choices=["female", "male"],
+                            value="female",
+                            label="🎤 Voice Gender",
+                        )
+                        use_gpu = gr.Checkbox(
+                            label="⚡ Use GPU (if available)",
+                            value=False,
+                        )
 
-            translate_btn = gr.Button("🚀 Translate Video", variant="primary", size="lg")
+                    with gr.Accordion("⚙️ Advanced Options", open=False):
+                        whisper_model = gr.Dropdown(
+                            choices=WHISPER_MODELS,
+                            value="base",
+                            label="🔍 Whisper Model (transcription quality)",
+                            info="tiny=fastest  base=default  small=better  medium=high  large=best",
+                        )
+                        translator_model = gr.Dropdown(
+                            choices=TRANS_MODELS,
+                            value="m2m100_418M",
+                            label="🌐 Translation Model",
+                            info="418M=fast  1.2B=better quality  nllb=alternative",
+                        )
+                        output_folder = gr.Textbox(
+                            label="📂 Save Output To (optional)",
+                            placeholder=r"e.g. D:\DubbedVideos  or  E:\MyVideos  — leave blank to use default output\ folder",
+                            info="Type any folder path on your PC or external drive. Folder will be created if it doesn't exist.",
+                            value="",
+                        )
 
-        # ── RIGHT COLUMN ─────────────────────────────────────────────────────
-        with gr.Column(scale=1):
-            video_output = gr.Video(
-                label="✅ Dubbed Video",
-                interactive=False,
-                elem_id="video_output",
-            )
-            export_btn = gr.DownloadButton(
-                label="⬇️ Export / Download Dubbed Video",
-                variant="secondary",
-                size="lg",
-                visible=False,
-                elem_id="export_btn",
-            )
-            log_output = gr.Textbox(
-                label="📋 Progress Log",
-                lines=15,
-                max_lines=15,
-                interactive=False,
-                elem_id="log_box",
-                placeholder="Logs will appear here once you start translation...",
-            )
+                    translate_btn = gr.Button("🚀 Translate Video", variant="primary", size="lg")
 
-    # ── language info box ────────────────────────────────────────────────────
-    with gr.Accordion("📖 Supported Languages & Voice Reference", open=False):
-        gr.Markdown("""
+                # ── RIGHT COLUMN ─────────────────────────────────────────────
+                with gr.Column(scale=1):
+                    video_output = gr.Video(
+                        label="✅ Dubbed Video",
+                        interactive=False,
+                        elem_id="video_output",
+                    )
+                    export_btn = gr.DownloadButton(
+                        label="⬇️ Export / Download Dubbed Video",
+                        variant="secondary",
+                        size="lg",
+                        visible=False,
+                        elem_id="export_btn",
+                    )
+                    log_output = gr.Textbox(
+                        label="📋 Progress Log",
+                        lines=15,
+                        max_lines=15,
+                        interactive=False,
+                        elem_id="log_box",
+                        placeholder="Logs will appear here once you start translation...",
+                    )
+
+            # ── language info box ────────────────────────────────────────────
+            with gr.Accordion("📖 Supported Languages & Voice Reference", open=False):
+                gr.Markdown("""
 | Code | Language | Male Voice | Female Voice |
 |------|----------|-----------|--------------|
 | en | English | en-US-GuyNeural | en-US-JennyNeural |
@@ -267,22 +377,39 @@ with gr.Blocks(title="🎬 Video Translator") as demo:
 | ja | Japanese | ja-JP-NanjoNeural | ja-JP-AiriNeural |
 | ko | Korean | ko-KR-InJoonNeural | ko-KR-SunHiNeural |
 | zh | Chinese | zh-CN-YunxiNeural | zh-CN-XiaoxiaoNeural |
-        """)
+                """)
 
-    # ── wire up button ───────────────────────────────────────────────────────
-    translate_btn.click(
-        fn=translate_video,
-        inputs=[
-            video_input,
-            source_lang,
-            target_lang,
-            voice_gender,
-            whisper_model,
-            translator_model,
-            use_gpu,
-        ],
-        outputs=[video_output, log_output, export_btn],
-    )
+            # ── wire up translate button ─────────────────────────────────────
+            translate_btn.click(
+                fn=translate_video,
+                inputs=[
+                    video_input,
+                    source_lang,
+                    target_lang,
+                    voice_gender,
+                    whisper_model,
+                    translator_model,
+                    use_gpu,
+                    output_folder,
+                ],
+                outputs=[video_output, log_output, export_btn],
+            )
+
+        # ════════════════════════════════════════════
+        # TAB 2 — Dubbed History
+        # ════════════════════════════════════════════
+        with gr.TabItem("📼 Dubbed History") as history_tab:
+            with gr.Row():
+                gr.Markdown("### All dubbed videos — click play or download any file")
+                refresh_btn = gr.Button("🔄 Refresh", scale=0, min_width=120)
+
+            history_html = gr.HTML(value=build_history_html)
+
+            refresh_btn.click(fn=refresh_history, outputs=history_html)
+
+            # Also refresh history when a new video is dubbed
+            translate_btn.click(fn=refresh_history, outputs=history_html)
+
 
 # ── launch ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -293,4 +420,5 @@ if __name__ == "__main__":
         share=False,
         theme=gr.themes.Soft(),
         css=css,
+        allowed_paths=[str(Path("output").resolve())],
     )
