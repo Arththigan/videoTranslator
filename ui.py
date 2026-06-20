@@ -61,6 +61,7 @@ def translate_video(
     translator_model,
     use_gpu,
     output_folder,
+    force_regen,
     progress=gr.Progress(track_tqdm=True),
 ):
     if video_file is None:
@@ -69,9 +70,32 @@ def translate_video(
 
     source_lang = code_from_choice(source_lang_str)
     target_lang = code_from_choice(target_lang_str)
+    custom_out  = output_folder.strip() if output_folder and output_folder.strip() else ""
 
-    # Resolve output folder — default to ./output if blank
-    custom_out = output_folder.strip() if output_folder and output_folder.strip() else ""
+    # If force regenerate — delete TTS chunks, dubbed audio and final video so they rebuild
+    if force_regen and video_file:
+        base     = sanitize_filename(Path(video_file).stem)
+        out_dir  = Path("output") / base
+        if out_dir.exists():
+            import stat
+
+            def _force_remove(func, path, _):
+                """Handle read-only files on Windows."""
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+
+            tts_dir = out_dir / "tts-chunks"
+            if tts_dir.exists():
+                shutil.rmtree(str(tts_dir), onerror=_force_remove)
+            for fname in ["audio_dubbed.mp3", f"{base}_dubbed.mp4"]:
+                fp = out_dir / fname
+                if fp.exists():
+                    try:
+                        os.chmod(str(fp), stat.S_IWRITE)
+                        fp.unlink()
+                    except Exception:
+                        pass
+            print(f"🗑️ Cleared previous TTS/audio/video cache for: {base}")
 
     # collect logs
     logs = []
@@ -241,7 +265,13 @@ def refresh_history():
 # ── Gradio UI ─────────────────────────────────────────────────────────────────
 css = """
 #title { text-align: center; }
-#log_box textarea { font-family: monospace; font-size: 12px; }
+/* Auto-scroll progress log to bottom */
+#log_box textarea {
+    font-family: monospace;
+    font-size: 12px;
+    overflow-y: auto !important;
+    scroll-behavior: smooth;
+}
 footer { display: none !important; }
 
 /* Fix video components to a fixed height — never grow beyond this */
@@ -275,6 +305,46 @@ footer { display: none !important; }
 """
 
 with gr.Blocks(title="🎬 Video Translator") as demo:
+
+    # Auto-scroll the progress log textarea to the bottom whenever it updates
+    gr.HTML("""
+    <script>
+    function setupLogScroll() {
+        const observer = new MutationObserver(() => {
+            const el = document.querySelector('#log_box textarea');
+            if (el) { el.scrollTop = el.scrollHeight; }
+        });
+        const target = document.querySelector('#log_box');
+        if (target) {
+            observer.observe(target, { childList: true, subtree: true, characterData: true });
+        } else {
+            setTimeout(setupLogScroll, 500);
+        }
+    }
+    document.addEventListener('DOMContentLoaded', setupLogScroll);
+    setTimeout(setupLogScroll, 1000);
+    </script>
+    """)
+
+    # Auto-scroll the progress log textarea to the bottom whenever it updates
+    gr.HTML("""
+    <script>
+    function setupLogScroll() {
+        const observer = new MutationObserver(() => {
+            const el = document.querySelector('#log_box textarea');
+            if (el) { el.scrollTop = el.scrollHeight; }
+        });
+        const target = document.querySelector('#log_box');
+        if (target) {
+            observer.observe(target, { childList: true, subtree: true, characterData: true });
+        } else {
+            setTimeout(setupLogScroll, 500);
+        }
+    }
+    document.addEventListener('DOMContentLoaded', setupLogScroll);
+    setTimeout(setupLogScroll, 1000);
+    </script>
+    """)
 
     gr.Markdown("# 🎬 Video Translator", elem_id="title")
     gr.Markdown("Dub any video into another language using AI — powered by Whisper + M2M100 + Edge TTS.")
@@ -316,6 +386,11 @@ with gr.Blocks(title="🎬 Video Translator") as demo:
                             label="⚡ Use GPU (if available)",
                             value=False,
                         )
+
+                    force_regen = gr.Checkbox(
+                        label="🔄 Force Regenerate — re-dub even if already processed (use when changing voice/language)",
+                        value=False,
+                    )
 
                     with gr.Accordion("⚙️ Advanced Options", open=False):
                         whisper_model = gr.Dropdown(
@@ -391,6 +466,7 @@ with gr.Blocks(title="🎬 Video Translator") as demo:
                     translator_model,
                     use_gpu,
                     output_folder,
+                    force_regen,
                 ],
                 outputs=[video_output, log_output, export_btn],
             )
