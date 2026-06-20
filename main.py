@@ -344,12 +344,20 @@ def translate_text(texts, output_path, source_lang='en', target_lang='ru', model
     os.makedirs(cache_dir, exist_ok=True)
     print(f"📥 Downloading model to: {cache_dir}")
     
-    # Download model with progress bar
+    # Check if model is already cached
+    from huggingface_hub import try_to_load_from_cache
+    cached = try_to_load_from_cache(model_config['name'], "config.json", cache_dir=cache_dir)
+    if cached is None:
+        print(f"⏳ First run: downloading {model_config['name']} (~430MB). This may take a few minutes...")
+        print(f"   Please wait, the UI will update when download is complete.")
+    else:
+        print(f"✅ Model already cached, loading from disk...")
+
+    # Download model
     snapshot_download(
         repo_id=model_config['name'],
         cache_dir=cache_dir,
         local_files_only=False,
-        resume_download=True
     )
     
     print("🔄 Loading tokenizer and model...")
@@ -545,6 +553,9 @@ def generate_tts_audio(text, output_path, lang='ru', use_rvc=True, voice_gender=
                 voice_map = {
                     'ru': {'male': 'ru-RU-DmitryNeural', 'female': 'ru-RU-SvetlanaNeural'},
                     'en': {'male': 'en-US-GuyNeural', 'female': 'en-US-JennyNeural'},
+                    # Spanish voices — change these to any voice from the list below:
+                    # Female: es-ES-ElviraNeural, es-MX-DaliaNeural, es-AR-ElenaNeural, es-CO-SalomeNeural
+                    # Male:   es-ES-AlvaroNeural, es-MX-JorgeNeural, es-AR-TomasNeural, es-CO-GonzaloNeural
                     'es': {'male': 'es-ES-AlvaroNeural', 'female': 'es-ES-ElviraNeural'},
                     'fr': {'male': 'fr-FR-DeniseNeural', 'female': 'fr-FR-HenriNeural'},
                     'de': {'male': 'de-DE-ConradNeural', 'female': 'de-DE-KatjaNeural'},

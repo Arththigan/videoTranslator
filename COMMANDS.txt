@@ -1,0 +1,126 @@
+====================================================
+  VIDEO TRANSLATOR - READY TO USE COMMANDS
+====================================================
+  Run all commands from the videoTranslator folder:
+  cd "C:\Users\ARTHTHIGAN\OneDrive\Documents\GitHub\videoTranslator"
+====================================================
+
+
+----------------------------------------------------
+  INSTALL DEPENDENCIES (run once)
+----------------------------------------------------
+
+pip install "openai-whisper>=20231117" "moviepy>=1.0.3" "gTTS>=2.3.2" "transformers>=4.36.0" "mutagen>=1.47.0" "sentencepiece>=0.1.99" "numpy>=1.24.0" "tqdm>=4.66.0" "soundfile>=0.12.1" "librosa>=0.10.1" "scipy>=1.11.0" "huggingface_hub" "edge-tts" torchaudio
+
+
+----------------------------------------------------
+  TRANSLATE YOUR VIDEO (English → Spanish)
+----------------------------------------------------
+
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang es --voice-gender female
+
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang es --voice-gender male
+
+
+----------------------------------------------------
+  TRANSLATE TO OTHER LANGUAGES
+----------------------------------------------------
+
+# English → Russian
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang ru --voice-gender female
+
+# English → French
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang fr --voice-gender female
+
+# English → German
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang de --voice-gender female
+
+# English → Japanese
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang ja --voice-gender female
+
+# English → Korean
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang ko --voice-gender female
+
+# English → Chinese
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang zh --voice-gender female
+
+# English → Portuguese
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang pt --voice-gender female
+
+# English → Italian
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --source-lang en --target-lang it --voice-gender female
+
+
+----------------------------------------------------
+  HIGHER QUALITY (slower, downloads bigger model)
+----------------------------------------------------
+
+# Better transcription (whisper small)
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --target-lang es --whisper-model small
+
+# Better translation (1.2B model)
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --target-lang es --translator-model m2m100_1.2B
+
+# Both higher quality
+python main.py "C:\Users\ARTHTHIGAN\Downloads\WhatsApp Video 2026-06-19 at 10.34.51 AM.mp4" --no-rvc --target-lang es --whisper-model small --translator-model m2m100_1.2B
+
+
+----------------------------------------------------
+  LIST AVAILABLE VOICES (Edge TTS)
+----------------------------------------------------
+
+# List all Spanish voices
+python -c "import edge_tts,asyncio; async def s(): v=await edge_tts.list_voices(); [print(x['ShortName'],'-',x['Gender']) for x in v if x['Locale'].startswith('es')]; asyncio.run(s())"
+
+# List all French voices
+python -c "import edge_tts,asyncio; async def s(): v=await edge_tts.list_voices(); [print(x['ShortName'],'-',x['Gender']) for x in v if x['Locale'].startswith('fr')]; asyncio.run(s())"
+
+# List all available languages
+python -c "import edge_tts,asyncio; async def s(): v=await edge_tts.list_voices(); langs=sorted(set(x['Locale'][:2] for x in v)); [print(l) for l in langs]; asyncio.run(s())"
+
+
+----------------------------------------------------
+  RE-RUN (delete old output first to regenerate)
+----------------------------------------------------
+
+rmdir /s /q "output\WhatsApp_Video_2026-06-19_at_10_34_51_AM"
+
+
+----------------------------------------------------
+  OPEN OUTPUT FOLDER
+----------------------------------------------------
+
+explorer "C:\Users\ARTHTHIGAN\OneDrive\Documents\GitHub\videoTranslator\output"
+
+
+----------------------------------------------------
+  LANGUAGE CODES REFERENCE
+----------------------------------------------------
+
+  en = English
+  ru = Russian
+  es = Spanish
+  fr = French
+  de = German
+  it = Italian
+  pt = Portuguese
+  ja = Japanese
+  ko = Korean
+  zh = Chinese
+
+
+----------------------------------------------------
+  WHISPER MODEL SIZES
+----------------------------------------------------
+
+  tiny   = fastest, lowest quality (1GB RAM)
+  base   = default, good balance   (1GB RAM)
+  small  = better quality          (2GB RAM)
+  medium = high quality, slow      (5GB RAM)
+  large  = best quality, very slow (10GB RAM)
+
+
+====================================================
+  OUTPUT LOCATION
+  C:\Users\ARTHTHIGAN\OneDrive\Documents\GitHub\videoTranslator\output\
+====================================================
