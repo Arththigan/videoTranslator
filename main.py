@@ -426,7 +426,7 @@ def generate_tts_with_timing(texts, output_dir, base_name, segments, target_lang
         
         # Get exact duration from original segment
         segment_duration = float(seg['end']) - float(seg['start'])
-        print(f"Segment {i}: Original duration = {segment_duration:.2f}s")
+        print(f"Segment {i}: Original duration = {segment_duration:.2f}s (start={seg['start']}, end={seg['end']})")
         
         # Generate TTS with voice gender
         generate_tts_audio(translated_text, str(temp_raw), target_lang, use_rvc, voice_gender, rvc_model)
@@ -435,32 +435,50 @@ def generate_tts_with_timing(texts, output_dir, base_name, segments, target_lang
         actual_duration = get_audio_duration(str(temp_raw))
         print(f"Segment {i}: TTS duration = {actual_duration:.2f}s")
         
+        # If original segment duration is zero or too small, just use TTS audio as-is
+        # Also guard against actual_duration being 0 (TTS failed silently)
+        if segment_duration < 0.1 or actual_duration <= 0:
+            print(f"⚠️ Segment {i}: Skipping adjustment (segment_duration={segment_duration}, actual_duration={actual_duration})")
+            import shutil as _shutil
+            _shutil.copy(str(temp_raw), str(temp_path))
+            final_duration = get_audio_duration(str(temp_path))
+            print(f"Segment {i}: Final duration = {final_duration:.2f}s (kept TTS as-is)")
+            audio_files.append(str(temp_path))
+            continue
+        
         # Calculate required speed adjustment
-        if actual_duration > segment_duration:
-            speed = actual_duration / segment_duration
-            if speed > 2.0:
-                print(f"⚠️ Segment {i}: Audio too long ({actual_duration:.2f}s > {segment_duration:.2f}s), limited to 2x")
-                speed = 2.0
-            print(f"Segment {i}: Adjusting speed to {speed:.2f}x")
-            
-            # Adjust speed to match original duration
-            command = [
-                "ffmpeg", "-y", "-i", str(temp_raw),
-                "-filter:a", f"atempo={speed:.3f}",
-                str(temp_path)
-            ]
-            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        else:
-            # If TTS is shorter, add silence to match original duration
-            silence_duration = segment_duration - actual_duration
-            print(f"Segment {i}: Adding {silence_duration:.2f}s silence")
-            
-            command = [
-                "ffmpeg", "-y", "-i", str(temp_raw),
-                "-af", f"apad=pad_dur={silence_duration}",
-                str(temp_path)
-            ]
-            subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            if actual_duration > segment_duration:
+                speed = actual_duration / segment_duration
+                if speed > 2.0:
+                    print(f"⚠️ Segment {i}: Audio too long ({actual_duration:.2f}s > {segment_duration:.2f}s), limited to 2x")
+                    speed = 2.0
+                print(f"Segment {i}: Adjusting speed to {speed:.2f}x")
+                
+                # Adjust speed to match original duration
+                command = [
+                    "ffmpeg", "-y", "-i", str(temp_raw),
+                    "-filter:a", f"atempo={speed:.3f}",
+                    str(temp_path)
+                ]
+                subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            else:
+                # If TTS is shorter, add silence to match original duration
+                silence_duration = segment_duration - actual_duration
+                print(f"Segment {i}: Adding {silence_duration:.2f}s silence")
+                
+                command = [
+                    "ffmpeg", "-y", "-i", str(temp_raw),
+                    "-af", f"apad=pad_dur={silence_duration}",
+                    str(temp_path)
+                ]
+                subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except ZeroDivisionError:
+            import traceback
+            print(f"❌ ZeroDivisionError at Segment {i}: segment_duration={segment_duration}, actual_duration={actual_duration}")
+            print(traceback.format_exc())
+            import shutil
+            shutil.copy(str(temp_raw), str(temp_path))
         
         # Verify final duration
         final_duration = get_audio_duration(str(temp_path))
@@ -557,7 +575,7 @@ def generate_tts_audio(text, output_path, lang='ru', use_rvc=True, voice_gender=
                     # Female: es-ES-ElviraNeural, es-MX-DaliaNeural, es-AR-ElenaNeural, es-CO-SalomeNeural
                     # Male:   es-ES-AlvaroNeural, es-MX-JorgeNeural, es-AR-TomasNeural, es-CO-GonzaloNeural
                     'es': {'male': 'es-ES-AlvaroNeural', 'female': 'es-ES-ElviraNeural'},
-                    'fr': {'male': 'fr-FR-DeniseNeural', 'female': 'fr-FR-HenriNeural'},
+                    'fr': {'male': 'fr-FR-HenriNeural', 'female': 'fr-FR-DeniseNeural'},
                     'de': {'male': 'de-DE-ConradNeural', 'female': 'de-DE-KatjaNeural'},
                     'it': {'male': 'it-IT-DiegoNeural', 'female': 'it-IT-ElsaNeural'},
                     'pt': {'male': 'pt-BR-AntonioNeural', 'female': 'pt-BR-FranciscaNeural'},
@@ -647,7 +665,7 @@ def replace_audio(video_path, audio_path, output_path):
     os.system(command)
 
 # === Main function ===
-def main(video_path, source_lang='en', target_lang='ru', use_rvc=True, voice_gender='female', rvc_model=None, whisper_model='base', translator_model='m2m100_418M', use_gpu=False):
+def main(video_path, source_lang='en', target_lang='ru', use_rvc=True, voice_gender='female', rvc_model=None, whisper_model='base', translator_model='m2m100_418M', use_gpu=False, force_regen=False):
     check_ffmpeg()
 
     input_path = Path(video_path)
@@ -694,13 +712,28 @@ def main(video_path, source_lang='en', target_lang='ru', use_rvc=True, voice_gen
         print("🌐 Translating text...")
         translations = translate_text(texts, translated_file, source_lang, target_lang, translator_model)
 
+    # === TTS cache invalidation — auto-detect voice/language change ===
+    tts_settings_file = tts_chunks_dir / ".tts_settings"
+    current_tts_settings = f"{target_lang}|{voice_gender}"
+    cached_tts_settings = ""
+    if tts_settings_file.exists():
+        cached_tts_settings = tts_settings_file.read_text(encoding="utf-8").strip()
+
+    settings_changed = cached_tts_settings != current_tts_settings
+    if settings_changed and not force_regen and tts_chunks_dir.exists():
+        print(f"🔄 Voice/language changed ({cached_tts_settings!r} → {current_tts_settings!r}), regenerating TTS...")
+        force_regen = True
+
     # === TTS with timing ===
     expected_audio_files = [str(tts_chunks_dir / f"{base_name}_{i:04d}.mp3") for i in range(len(translations))]
-    if all(os.path.exists(f) and os.path.getsize(f) > 0 for f in expected_audio_files):
+    if not force_regen and all(os.path.exists(f) and os.path.getsize(f) > 0 for f in expected_audio_files):
         print("⏩ Skipping TTS audio generation — all audio files found in folder.")
         temp_audio_files = expected_audio_files
     else:
-        print(f"🔊 Generating TTS audio with {voice_gender} voice...")
+        if force_regen:
+            print(f"🔄 Force regenerating TTS audio with {voice_gender} voice...")
+        else:
+            print(f"🔊 Generating TTS audio with {voice_gender} voice...")
         temp_audio_files = generate_tts_with_timing(
             translations, 
             tts_chunks_dir, 
@@ -712,9 +745,11 @@ def main(video_path, source_lang='en', target_lang='ru', use_rvc=True, voice_gen
             rvc_model
         )
         print(f"✅ Generated {len(temp_audio_files)} audio files")
+        # Save current settings so next run can detect changes
+        tts_settings_file.write_text(current_tts_settings, encoding="utf-8")
 
     # === Combine audio ===
-    if not dubbed_audio.exists():
+    if not dubbed_audio.exists() or force_regen:
         print("🎧 Combining audio segments...")
         combine_audio_segments(tts_chunks_dir, output_dir, "audio_dubbed.mp3")
     else:

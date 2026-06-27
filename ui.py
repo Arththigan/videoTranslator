@@ -72,6 +72,14 @@ def translate_video(
     target_lang = code_from_choice(target_lang_str)
     custom_out  = output_folder.strip() if output_folder and output_folder.strip() else ""
 
+    # Auto-detect already-processed video — force regenerate so settings are applied fresh
+    base     = sanitize_filename(Path(video_file).stem)
+    out_dir  = Path("output") / base
+    final_output = out_dir / f"{base}_dubbed.mp4"
+    if final_output.exists() and not force_regen:
+        force_regen = True
+        print(f"🔄 Previously dubbed video detected, auto-regenerating with current settings...")
+
     # If force regenerate — delete TTS chunks, dubbed audio and final video so they rebuild
     if force_regen and video_file:
         base     = sanitize_filename(Path(video_file).stem)
@@ -95,7 +103,8 @@ def translate_video(
                         fp.unlink()
                     except Exception:
                         pass
-            print(f"🗑️ Cleared previous TTS/audio/video cache for: {base}")
+            if force_regen:
+                print(f"🗑️ Cleared previous TTS/audio/video cache for: {base}")
 
     # collect logs
     logs = []
@@ -114,6 +123,7 @@ def translate_video(
                 whisper_model    = whisper_model,
                 translator_model = translator_model,
                 use_gpu          = use_gpu,
+                force_regen      = force_regen,
             )
             base     = sanitize_filename(Path(video_file).stem)
             out_file = Path("output") / base / f"{base}_dubbed.mp4"
@@ -130,7 +140,8 @@ def translate_video(
                 else:
                     result_path[0] = str(out_file)
         except Exception as e:
-            error_box[0] = str(e)
+            import traceback
+            error_box[0] = f"{e}\n\nFull traceback:\n{traceback.format_exc()}"
 
     thread = threading.Thread(target=_run, daemon=True)
     thread.start()
@@ -487,8 +498,37 @@ with gr.Blocks(title="🎬 Video Translator") as demo:
             translate_btn.click(fn=refresh_history, outputs=history_html)
 
 
+# ── Auto-cleanup: delete output folders older than 7 days ────────────────────
+def cleanup_old_outputs(max_age_days: int = 7):
+    """Delete any output subfolder whose dubbed mp4 is older than max_age_days."""
+    import time
+    cutoff = time.time() - max_age_days * 86400  # 86400 seconds in a day
+    if not OUTPUT_DIR.exists():
+        return
+    deleted = []
+    for folder in OUTPUT_DIR.iterdir():
+        if not folder.is_dir():
+            continue
+        # Use the dubbed mp4 mtime if it exists, otherwise the folder mtime
+        mp4_files = list(folder.glob("*_dubbed.mp4"))
+        ref_time = mp4_files[0].stat().st_mtime if mp4_files else folder.stat().st_mtime
+        if ref_time < cutoff:
+            try:
+                import stat as _stat
+                def _force_remove(func, path, _):
+                    os.chmod(path, _stat.S_IWRITE)
+                    func(path)
+                shutil.rmtree(str(folder), onerror=_force_remove)
+                deleted.append(folder.name)
+            except Exception as e:
+                print(f"⚠️ Could not delete {folder}: {e}")
+    if deleted:
+        print(f"🗑️ Auto-cleanup: deleted {len(deleted)} output(s) older than {max_age_days} days: {', '.join(deleted)}")
+
+
 # ── launch ────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    cleanup_old_outputs(max_age_days=7)   # run once on startup
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
