@@ -15,6 +15,17 @@ from huggingface_hub import snapshot_download
 import torch
 import numpy as np
 import sys
+
+# Ensure UTF-8 output encoding on Windows so emojis do not raise UnicodeEncodeError
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, 'reconfigure'):
+            sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        if hasattr(sys.stderr, 'reconfigure'):
+            sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 # import soundfile as sf
 # from fairseq import checkpoint_utils
 # import fairseq
@@ -566,6 +577,13 @@ def generate_tts_audio(text, output_path, lang='ru', use_rvc=True, voice_gender=
             import edge_tts
             import asyncio
             
+            # If an older edge_tts was cached in memory (e.g. before upgrade), reload to latest
+            if getattr(edge_tts, '__version__', '0') < '7.3.1':
+                for mod in list(sys.modules.keys()):
+                    if mod.startswith('edge_tts'):
+                        del sys.modules[mod]
+                import edge_tts
+
             async def generate_edge_tts():
                 # Map language codes to Edge TTS voices
                 voice_map = {
@@ -579,7 +597,7 @@ def generate_tts_audio(text, output_path, lang='ru', use_rvc=True, voice_gender=
                     'de': {'male': 'de-DE-ConradNeural', 'female': 'de-DE-KatjaNeural'},
                     'it': {'male': 'it-IT-DiegoNeural', 'female': 'it-IT-ElsaNeural'},
                     'pt': {'male': 'pt-BR-AntonioNeural', 'female': 'pt-BR-FranciscaNeural'},
-                    'ja': {'male': 'ja-JP-NanjoNeural', 'female': 'ja-JP-AiriNeural'},
+                    'ja': {'male': 'ja-JP-KeitaNeural', 'female': 'ja-JP-NanamiNeural'},
                     'ko': {'male': 'ko-KR-InJoonNeural', 'female': 'ko-KR-SunHiNeural'},
                     'zh': {'male': 'zh-CN-YunxiNeural', 'female': 'zh-CN-XiaoxiaoNeural'}
                 }
@@ -598,8 +616,8 @@ def generate_tts_audio(text, output_path, lang='ru', use_rvc=True, voice_gender=
             
         except ImportError:
             print("⚠️ Edge TTS not installed. Installing now...")
-            subprocess.run([sys.executable, "-m", "pip", "install", "edge-tts"])
-            print("✅ Edge TTS installed. Please run the script again.")
+            subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "edge-tts>=7.3.1"])
+            print("✅ Edge TTS installed.")
             return False
         except Exception as e:
             print(f"⚠️ Edge TTS failed: {e}, falling back to gTTS")
@@ -756,7 +774,7 @@ def main(video_path, source_lang='en', target_lang='ru', use_rvc=True, voice_gen
         print(f"⏩ Skipping combination — found file {dubbed_audio}")
 
     # === Build final video ===
-    if not final_output.exists():
+    if not final_output.exists() or force_regen:
         print("🎬 Creating final video...")
         replace_audio(video_path, dubbed_audio, final_output)
     else:

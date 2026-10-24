@@ -27,9 +27,18 @@ class _QueueWriter:
     def write(self, msg):
         if msg.strip():
             _log_queue.put(msg.rstrip())
-        self._orig.write(msg)
+        try:
+            self._orig.write(msg)
+        except Exception:
+            try:
+                self._orig.write(msg.encode('ascii', errors='replace').decode('ascii'))
+            except Exception:
+                pass
     def flush(self):
-        self._orig.flush()
+        try:
+            self._orig.flush()
+        except Exception:
+            pass
 
 sys.stdout = _QueueWriter(sys.__stdout__)
 sys.stderr = _QueueWriter(sys.__stderr__)
@@ -460,7 +469,7 @@ with gr.Blocks(title="🎬 Video Translator") as demo:
 | de | German | de-DE-ConradNeural | de-DE-KatjaNeural |
 | it | Italian | it-IT-DiegoNeural | it-IT-ElsaNeural |
 | pt | Portuguese | pt-BR-AntonioNeural | pt-BR-FranciscaNeural |
-| ja | Japanese | ja-JP-NanjoNeural | ja-JP-AiriNeural |
+| ja | Japanese | ja-JP-KeitaNeural | ja-JP-NanamiNeural |
 | ko | Korean | ko-KR-InJoonNeural | ko-KR-SunHiNeural |
 | zh | Chinese | zh-CN-YunxiNeural | zh-CN-XiaoxiaoNeural |
                 """)
