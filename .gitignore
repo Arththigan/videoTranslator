@@ -1,3 +1,5 @@
 venv
 output/*
 models/*
+config.bat
+node_modules
